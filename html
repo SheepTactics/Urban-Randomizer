@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Urban Chain Generator</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        background: #0a0a0a;
+        color: #00ffaa;
+        font-family: "Courier New", monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        cursor: pointer;
+      }
+      #phrase {
+        font-size: 4.5vw;
+        font-weight: bold;
+        text-align: center;
+        line-height: 1.4;
+        padding: 100px 20px 40px;
+        user-select: none;
+        max-width: 95%;
+      }
+      #instructions {
+        position: absolute;
+        top: 30px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        font-size: 1.4rem;
+        opacity: 0.85;
+        pointer-events: none;
+      }
+      .term {
+        display: inline-block;
+        margin: 0 8px;
+        min-width: 60px;
+        text-align: center;
+        transition: transform 0.2s;
+        position: relative;
+      }
+      .term:hover {
+        transform: scale(1.15);
+      }
+      #tooltip {
+        display: none;
+        position: fixed;
+        background: #333;
+        color: #fff;
+        padding: 12px 18px;
+        border-radius: 8px;
+        font-size: 1rem;
+        white-space: pre-wrap;
+        text-align: left;
+        z-index: 9999;
+        pointer-events: none;
+        box-shadow: 0 0 20px #333;
+        max-width: 50vw;
+        width: 50vw;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="instructions">Click anywhere or press SPACE for next slang • Hover for definition</div>
+    <div id="phrase"></div>
+    <div id="tooltip"></div>
+    <script>
+      const phraseDiv = document.getElementById("phrase");
+      const tooltip = document.getElementById("tooltip");
+      const udRandom = "https://api.urbandictionary.com/v0/random";
+      const proxies = [
+        "https://corsproxy.io/?",
+        "https://thingproxy.freeboard.io/fetch/",
+        "https://api.allorigins.win/raw?url=",
+        "https://cors.bridged.cc/",
+        "https://proxy.cors.sh/",
+        "https://test.cors.workers.dev/?",
+        "https://api.codetabs.com/v1/proxy?quest="
+      ];
+      let queue = [];
+
+      async function getRandomEntries() {
+        const cacheBust = `?_=${Date.now()}`;
+        for (const proxy of proxies) {
+          try {
+            const response = await fetch(proxy + encodeURIComponent(udRandom + cacheBust), {
+              cache: "no-store"
+            });
+            if (!response.ok) continue;
+            const data = await response.json();
+            if (data && data.list && data.list.length > 0) {
+              data.list.sort((a, b) => (b.thumbs_up - b.thumbs_down) - (a.thumbs_up - a.thumbs_down));
+              return data.list;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+        throw new Error("All proxies failed");
+      }
+
+      async function preload() {
+        try {
+          const entries = await getRandomEntries();
+          queue = queue.concat(entries);
+        } catch (e) {}
+      }
+
+      async function addTerm() {
+        let entry;
+        if (queue.length === 0) {
+          try {
+            const entries = await getRandomEntries();
+            entry = entries.shift();
+            queue = queue.concat(entries);
+          } catch (e) {
+            entry = null;
+          }
+        } else {
+          entry = queue.shift();
+        }
+        if (!entry) {
+          const span = document.createElement("span");
+          span.textContent = "[NO SIGNAL]";
+          span.style.color = "#ff0055";
+          phraseDiv.appendChild(span);
+        } else {
+          const term = entry.word.trim();
+          const definition = entry.definition.replace(/[\r\n]+/g, " ").replace(/\[|\]/g, "").trim();
+          const example = entry.example.replace(/[\r\n]+/g, " ").replace(/\[|\]/g, "").trim() || "none";
+          const span = document.createElement("span");
+          span.className = "term";
+          span.textContent = term;
+          span.dataset.definition = definition;
+          span.dataset.example = example;
+          span.style.color = `hsl(${Math.random() * 360}, 100%, 70%)`;
+          phraseDiv.appendChild(span);
+        }
+        phraseDiv.appendChild(document.createTextNode(" "));
+        window.scrollTo(0, document.body.scrollHeight);
+        if (queue.length < 5) preload();
+      }
+
+      (async () => {
+        await preload();
+        addTerm();
+      })();
+
+      document.body.addEventListener("click", addTerm);
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          addTerm();
+        }
+      });
+
+      let currentTerm = null;
+
+      function updateTooltipPosition(e) {
+        if (!currentTerm) return;
+
+        tooltip.style.display = "block";
+        const tooltipWidth = tooltip.offsetWidth;
+
+        let desiredX = e.clientX;
+        let desiredY = e.clientY + 20;
+
+        let leftIfCentered = desiredX - tooltipWidth / 2;
+
+        const centerX = window.innerWidth / 2;
+        const maxDeviation = window.innerWidth * 0.45;
+
+        let finalLeft = leftIfCentered;
+
+        if (finalLeft < centerX - maxDeviation) {
+          finalLeft = centerX - maxDeviation;
+        } else if (finalLeft + tooltipWidth > centerX + maxDeviation) {
+          finalLeft = centerX + maxDeviation - tooltipWidth;
+        }
+
+        finalLeft = Math.max(10, Math.min(window.innerWidth - tooltipWidth - 10, finalLeft));
+
+        tooltip.style.left = `${finalLeft}px`;
+        tooltip.style.top = `${desiredY}px`;
+        tooltip.style.transform = "none";
+      }
+
+      document.addEventListener("mousemove", (e) => {
+        updateTooltipPosition(e);
+      });
+
+      phraseDiv.addEventListener("mouseover", (e) => {
+        if (e.target.classList.contains("term")) {
+          currentTerm = e.target;
+          tooltip.textContent = `${currentTerm.dataset.definition}\n\nExample: ${currentTerm.dataset.example}`;
+          tooltip.style.display = "block";
+          updateTooltipPosition(e);
+        }
+      });
+
+      phraseDiv.addEventListener("mouseout", (e) => {
+        if (e.target.classList.contains("term")) {
+          currentTerm = null;
+          tooltip.style.display = "none";
+        }
+      });
+    </script>
+  </body>
+</html>
